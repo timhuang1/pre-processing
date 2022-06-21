@@ -2,9 +2,9 @@
 # PARA_DATA_DIR=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data
 PARA_DATA_DIR=/data1/paraphrase_pair_data
 
-export task_name=amazon_polarity
+export task_name=trip_advisor
 # export ln_count=2115834
-export ln_count=8092133
+export ln_count=8415637
 
 export data_dir=$PARA_DATA_DIR/$task_name
 # export data_dir=$PARA_DATA_DIR/$task_name
@@ -21,7 +21,7 @@ export prefix=$task_name"_sents"$part_tail
 
 export src_file=$data_dir/$corpus_file
 export out_file=$data_dir/$prefix-part
-export nsplit=70
+export nsplit=80
 
 # export ln_count=$(wc -l < $src_file)
 
