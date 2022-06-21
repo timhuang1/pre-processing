@@ -1,5 +1,6 @@
-DATA_DIR=/apdcephfs/share_916081/timxthuang/bt_files/mono_en
-PARA_DATA_DIR=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data
+# DATA_DIR=/apdcephfs/share_916081/timxthuang/bt_files/mono_en
+# PARA_DATA_DIR=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data
+PARA_DATA_DIR=/data1/paraphrase_pair_data
 
 export task_name=amazon_polarity
 # export ln_count=2115834
