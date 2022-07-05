@@ -1,9 +1,7 @@
-DATA_DIR=/apdcephfs/share_916081/timxthuang/bt_files/mono_en
-PARA_DATA_DIR=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data
 
 export ln_count=2115834
 
-export data_dir=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data/xsum
+export data_dir=/data1/paraphrase_pair_data/xsum
 export file_extension=".jsonl"
 export task_name=xsum
 export part_tail="_train_transmart"
