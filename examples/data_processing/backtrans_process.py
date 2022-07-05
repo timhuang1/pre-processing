@@ -8,11 +8,18 @@ import subprocess
 import random
 import nltk
 import spacy_fastlang
+import benepar
+import socket
+import re
+import torch
+import torch.distributed as dist
 from collections import defaultdict, Counter
 from tqdm.auto import tqdm
 from ftfy import fix_text
 from pathlib import Path
 from multiprocessing import Pool
+from apted import APTED
+from apted.helpers import Tree
 
 # DATA_DIR = "/apdcephfs/share_916081/timxthuang/bt_files/mono_en/msmarco"
 # ceph_data_dir = "/apdcephfs/share_916081/timxthuang/bt_files/mono_en/msmarco"
@@ -112,7 +119,7 @@ def mono_sent_split_text_file(args):
                         has_verb -= 1
                 if has_noun < 1 and has_verb < 1:
                     reject = False
-                    valid_sent.append(sent.text.strip())
+                    valid_sent.append(fix_text(sent.text.strip()))
             # if reject:
             #     print(sent.text.strip())
         return valid_sent
@@ -143,6 +150,109 @@ def mono_sent_split_text_file(args):
     return out_filename
 
 
+def diversity_measure(args):
+    import torch.distributed as dist
+    dist.init_process_group(
+        "nccl",
+        init_method=args.url,
+        rank=args.local_rank,
+        world_size=args.nsplit
+    )
+    torch.cuda.set_device(args.local_rank)
+    torch.set_default_tensor_type(torch.cuda.FloatTensor)
+
+    filename = args.sub_filename
+    # filename_prefix = filename.split(".")[0]
+    # out_filename = f"{filename_prefix}-measure.tmp.jsonl"
+    out_filename = args.out_sub_filename
+    src_file, out_file = os.path.join(args.data_dir, filename),\
+        os.path.join(args.data_dir, out_filename)
+    assert len(args.text_cols.split("::")) == 2, f"Invalid text_cols: {args.text_cols}"
+    ref_col, eval_col = args.text_cols.split("::")
+    metric_name = "tree_edit"
+    # ln_count = sum(1 for _ in Path(src_file).open(encoding="utf-8", errors='ignore').readlines())
+    # progress_bar = tqdm(range(ln_count), disable=not args.major_process)
+
+    def normalize_tree(tree_string, max_depth=3):
+        res = []
+        depth = -1
+        leaf = False
+        for c in tree_string:
+            if c in ['{', '}']:
+                continue
+            if c == '(':
+                leaf = False
+                depth += 1
+
+            elif c == ')':
+                leaf = False
+                depth -= 1
+                if depth < max_depth:
+                    res.append('}')
+                    continue
+                    
+            elif c == ' ':
+                leaf = True
+                continue
+
+            if depth <= max_depth and not leaf and c != ')':
+                res.append(c if c != '(' else '{')
+            
+        return ''.join(res)
+
+    def tree_edit_distance(lintree1, lintree2):
+        tree1 = Tree.from_text(lintree1)
+        tree2 = Tree.from_text(lintree2)
+        n_nodes_t1 = lintree1.count('{')
+        n_nodes_t2 = lintree2.count('{')
+        apted = APTED(tree1, tree2)
+        ted = apted.compute_edit_distance()
+        return ted / (n_nodes_t1 + n_nodes_t2)
+
+    def get_tree_string(doc):
+        return next(iter(doc.sents))._.parse_string
+
+    def dist(pair):
+        p_tree_n = normalize_tree(pair[0], max_depth=3)
+        r_tree_n = normalize_tree(pair[1], max_depth=3)
+        ted = tree_edit_distance(p_tree_n, r_tree_n)
+        return ted
+
+    with open(src_file, encoding="utf-8") as f_in:
+        jsonl_lns = f_in.readlines()
+
+    # benepar.download('benepar_en3')
+    spacy.prefer_gpu()
+    nlp = spacy.load('en_core_web_sm')
+    if spacy.__version__.startswith('2'):
+        nlp.add_pipe(benepar.BeneparComponent("benepar_en3"))
+    else:
+        nlp.add_pipe("benepar", config={"model": "benepar_en3"})
+
+    all_ref_text = [json.loads(ln)[ref_col] for ln in jsonl_lns]
+    all_eval_text = [json.loads(ln)[eval_col] for ln in jsonl_lns]
+    with nlp.select_pipes(enable=["parser", "benepar"]):
+        refs = list(tqdm(nlp.pipe(all_ref_text, batch_size=256), total=len(all_ref_text), desc="syntdiv:parse_refs", disable=False))
+        refs = list(map(get_tree_string, refs))
+
+        preds = list(tqdm(nlp.pipe(all_eval_text, batch_size=256), total=len(all_eval_text), desc="syntdiv:parse_preds", disable=False))
+        preds = list(map(get_tree_string, preds))
+    scores = list(tqdm(map(dist, zip(preds, refs)), total=len(preds), desc="syntdiv:calc_dist"))
+    with open(out_file, "w", encoding="utf-8") as f_out:
+        for idx in range(len(jsonl_lns)):
+            content = json.loads(jsonl_lns[idx])
+            content[metric_name] = scores[idx]
+            json.dump(
+                content,
+                f_out,
+                ensure_ascii=False,
+            )
+            f_out.write("\n")
+
+    # torch.distributed.barrier()
+    return out_filename
+
+
 def backtrans_filter(args):
     filename = args.sub_filename
     print(f"{filename}, {args.major_process}")
@@ -163,16 +273,12 @@ def backtrans_filter(args):
     spacy_pipe.add_pipe("language_detector")
 
     def get_div(sent1, sent2):
-        # sent1 = sent1_text.strip().lower().split(" ")
-        # sent2 = sent2_text.strip().lower().split(" ")
         div_score = nltk.edit_distance(sent1, sent2) / max(len(sent1), len(sent2))
         return div_score
 
     def not_valid(sent1, sent2):
-        # sent1 = sent1_text.strip().lower().split(" ")
-        # sent2 = sent2_text.strip().lower().split(" ")
         max_len, min_len = max(len(sent1), len(sent2)), min(len(sent1), len(sent2))
-        if max_len > 100 or min_len < 5:
+        if max_len > 75 or min_len < 5:
             return True
         if (max_len / min_len > 1.5 and min_len > 20) or\
                 (max_len / min_len > 1.9 and min_len <= 20):
@@ -200,8 +306,11 @@ def backtrans_filter(args):
                 fOut_trash.write(ln_text)
                 fOut_trash.write("\n")
                 continue                
-            sent1 = sent1_text.strip().lower().split(" ")
-            sent2 = sent2_text.strip().lower().split(" ")
+
+            sent1 = re.sub('[^A-Za-z0-9]+', ' ', sent1_text)
+            sent2 = re.sub('[^A-Za-z0-9]+', ' ', sent2_text)
+            sent1 = sent1.strip().lower().split(" ")
+            sent2 = sent2.strip().lower().split(" ")
             # measure div and other heuristic rules (labeled as tag)
             #   tag: high-edit; low-edit; clean (length short/long or misalighn, `< unk >` issue 
             if not_valid(sent1, sent2):
@@ -243,16 +352,23 @@ def fix_text_only(args):
     in_file, out_file = os.path.join(args.data_dir, args.sub_filename),\
         os.path.join(args.data_dir, out_filename)
     ln_count = sum(1 for _ in Path(in_file).open(encoding="utf-8", errors='ignore').readlines())
+    
+    spacy_pipe = spacy.load("en_core_web_sm")
+
     progress_bar = tqdm(range(ln_count), disable=not args.major_process)
     with open(out_file, "w", encoding="utf-8") as f_out:
         for idx in range(ln_count):
+            progress_bar.update(1)
             # linecache starts at 1
             idx += 1
             line = linecache.getline(str(in_file), idx).rstrip("\n")
             content = json.loads(line)
             ln_text = content.get("text")
             clean_text = fix_text(ln_text)
-            progress_bar.update(1)
+            doc = spacy_pipe(clean_text)
+            valid_len = sum([token.pos_ != "PUNCT" and token.pos_ != "NUM" for token in doc])
+            if valid_len < 10:
+                continue
             content["text"] = clean_text
             if "\\u" in ln_text:
                 print(f"{ln_text} is still dirty")
@@ -283,6 +399,48 @@ def run_split(args):
         all_outfiles = p.map(run_func, pass_args)
     
     post_action_mapping[args.post_action](args, file_names, all_outfiles)
+
+
+def run_gpu_split(args):
+    sub_files = args.sub_files
+    sub_files = sub_files.split(";")
+    file_names = list(filter(len, sub_files))
+    assert args.nsplit == len(file_names), f"file num {len(file_names)} and nsplit {args.nsplit} must be the same"
+    out_sub_filenames = [f"{name}.tmp" for name in file_names]
+    
+    args.sub_filenames = copy.deepcopy(file_names)
+    args.out_sub_filenames = copy.deepcopy(out_sub_filenames)
+
+    # Pick a free port
+    with socket.socket() as s:
+        s.bind(("localhost", 0))
+        port = s.getsockname()[1]
+        url = "tcp://localhost:" + str(port)
+        args.url = url
+    ctx = torch.multiprocessing.spawn(
+        process_fn,
+        args=(args,),
+        nprocs=args.nsplit,
+        join=True,
+    )
+
+    # try:
+    #     torch.distributed.barrier()
+    # except Exception as e:
+    #     pass
+    
+    post_action_mapping[args.post_action](args, file_names, out_sub_filenames)
+
+
+# Wrap processing function
+def process_fn(rank, args):
+    local_args = copy.copy(args)
+    local_args.local_rank = rank
+    local_args.sub_filename = args.sub_filenames[rank]
+    local_args.out_sub_filename = args.out_sub_filenames[rank]
+    run_func = func_name_mapping[args.func_name]
+    run_func(local_args)
+    # diversity_measure(local_args)
 
 
 def merge_to_single(args, ori_part_files, all_outfiles):
@@ -576,67 +734,18 @@ def multi_task():
     parser.add_argument("--nsplit", type=int, required=True, help="Num of processes to run simultaneously")
     parser.add_argument("--func_name", type=str, required=True, help="Function name applied to each sample")
     parser.add_argument("--post_action", type=str, default="merge_to_single", help="Function name applied to the post cleaning and merging phase")
-    parser.add_argument("--out_filename", type=str, default=None, help="Target processing file")
+    parser.add_argument("--out_filename", type=str, default=None, help="")
+    parser.add_argument("--text_cols", type=str, default=None, help="")
+    parser.add_argument("--use_gpu", action="store_true", help="whether use torch.multiprocessing for multi-thread")
     # parser.add_argument("--filename1", type=str, default=None, help="Target processing file1")
     # parser.add_argument("--filename2", type=str, default=None, help="Target processing file2")
     args = parser.parse_args()
     # # split_inspect()
     # main()
-    run_split(args)
-
-
-def fine_filter():
-    parser = argparse.ArgumentParser(
-        description="Extracting more fine-grained sentences from passages")
-    parser.add_argument("--data_dir", type=str, required=True, help="Names of the split files dir")
-    parser.add_argument("--filename", type=str, required=True, help="Raw filename")
-    parser.add_argument("--tgt_num", type=int, default=50000, help="Raw filename")
-    parser.add_argument("--out_filename", type=str, default=None, help="Raw filename")
-    args = parser.parse_args()
-
-    spacy_pipe = spacy.load("en_core_web_trf")
-    if "." not in args.filename:
-        name_prefix = args.filename
-        args.filename = f"{args.filename}.jsonl"
+    if not args.use_gpu:
+        run_split(args)
     else:
-        name_prefix, _ = args.filename.split(".")
-    with open(os.path.join(args.data_dir, args.filename), encoding="utf-8") as f_in:
-        all_sents = f_in.readlines()
-    
-    sent_idx = list(range(len(all_sents)))
-    random.shuffle(sent_idx)
-    
-    def strict_filter(ln_text):
-        doc = spacy_pipe(ln_text)
-        valid_len = sum([token.pos_ != "PUNCT" and token.pos_ != "NUM" for token in doc])
-        if valid_len < 20:
-            return False
-        if not doc[0].is_title:
-            return False
-        return True
-
-    progress_bar = tqdm(range(args.tgt_num))
-    out_filename = args.out_filename if args.out_filename is not None else f"{name_prefix}-strict.jsonl"
-    out_file = os.path.join(args.data_dir, out_filename)
-    valid_num = 0
-    with open(out_file, "w", encoding="utf-8") as f_out:
-        for idx in sent_idx:
-            line = all_sents[idx]
-            content = json.loads(line)
-            ln_text = content.get("text")
-            if strict_filter(ln_text):
-                json.dump(
-                    content,
-                    f_out,
-                    ensure_ascii=False,
-                )
-                f_out.write("\n")
-                progress_bar.update(1)
-                valid_num += 1
-                if valid_num > args.tgt_num:
-                    break
-            else:
-                continue    
+        run_gpu_split(args)
 
 
 func_name_mapping = {
@@ -646,6 +755,7 @@ func_name_mapping = {
     "entity_mask": entity_mask,
     "backtrans_filter": backtrans_filter,
     "entity_mask_align": entity_mask_align,
+    "diversity_measure": diversity_measure,
 }
 
 post_action_mapping = {
@@ -656,4 +766,3 @@ post_action_mapping = {
 if __name__ == '__main__':
     # single_task()
     multi_task()
-    # fine_filter()

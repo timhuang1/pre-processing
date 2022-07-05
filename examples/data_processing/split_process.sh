@@ -1,27 +1,19 @@
-# DATA_DIR=/apdcephfs/share_916081/timxthuang/bt_files/mono_en
-# PARA_DATA_DIR=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data
-PARA_DATA_DIR=/data1/paraphrase_pair_data
+DATA_DIR=/apdcephfs/share_916081/timxthuang/bt_files/mono_en
+PARA_DATA_DIR=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data
 
-export task_name=trip_advisor
-# export ln_count=2115834
-export ln_count=8415637
+export ln_count=2115834
 
-export data_dir=$PARA_DATA_DIR/$task_name
-# export data_dir=$PARA_DATA_DIR/$task_name
-# export file_extension=".txt.bpe.en"
-# cc_news_sents_train-add-mask.jsonl
+export data_dir=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data/xsum
 export file_extension=".jsonl"
-
-export part_tail="-align"
-# export part_tail="_train-add-mask"
-# export part_tail="_top1madd-mask"
+export task_name=xsum
+export part_tail="_train_transmart"
 
 export corpus_file=$task_name"_sents"$part_tail$file_extension
 export prefix=$task_name"_sents"$part_tail
 
 export src_file=$data_dir/$corpus_file
 export out_file=$data_dir/$prefix-part
-export nsplit=80
+export nsplit=75
 
 # export ln_count=$(wc -l < $src_file)
 
@@ -30,7 +22,7 @@ split -da 2  -l$(($ln_count/$nsplit)) $src_file $out_file --additional-suffix=$f
 export all_splits=""
 # for i in $(seq 0 $(($nsplit-1)));
 # do
-#   export all_splits=$all_splits";""part0"$i".jsonl"
+#   export all_splits=$all_splits";"$prefix-part0$i$file_extension
 # done
 
 for i in $(seq 0 9);
@@ -44,6 +36,23 @@ do
 done
 
 echo $all_splits
+
+
+# # =========
+# # Measure tree-diversity of sentence-pairs
+# # =========
+# func_name=diversity_measure
+# text_cols="src_en::pred_en"
+# out_filename=$prefix"_measure"$file_extension
+# python backtrans_process.py\
+#   --data_dir $data_dir\
+#   --sub_files $all_splits\
+#   --nsplit $nsplit\
+#   --text_cols $text_cols\
+#   --out_filename $out_filename\
+#   --func_name $func_name\
+#   --use_gpu
+# # =========
 
 # =========
 # Filter Back-translation results and re-save into multiple output files
@@ -67,9 +76,22 @@ python backtrans_process.py\
 #   --sub_files $all_splits\
 #   --nsplit $nsplit\
 #   --func_name $func_name\
-#   --out_filename $task_name"_sents.jsonl"
+#   --out_filename $task_name"_sents_add.jsonl"
 # # =========
 
+
+# # =========
+# # Further filter and fix mono-en sents
+# # =========
+# out_filename=$prefix"_clean"$file_extension
+# export func_name=fix_text_only
+# python backtrans_process.py\
+#   --data_dir $data_dir\
+#   --sub_files $all_splits\
+#   --nsplit $nsplit\
+#   --func_name $func_name\
+#   --out_filename $out_filename
+# # =========
 
 # # =========
 # # entity mask de-lexicalize
