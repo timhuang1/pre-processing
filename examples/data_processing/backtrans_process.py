@@ -218,6 +218,11 @@ def diversity_measure(args):
         ted = tree_edit_distance(p_tree_n, r_tree_n)
         return ted
 
+    def get_word_edit(sent1, sent2):
+        sent1 = re.sub('[^A-Za-z0-9]+', ' ', sent1)
+        sent2 = re.sub('[^A-Za-z0-9]+', ' ', sent2)
+        return nltk.edit_distance(sent1, sent2) / max(len(sent1), len(sent2))
+
     with open(src_file, encoding="utf-8") as f_in:
         jsonl_lns = f_in.readlines()
 
@@ -231,6 +236,7 @@ def diversity_measure(args):
 
     all_ref_text = [json.loads(ln)[ref_col] for ln in jsonl_lns]
     all_eval_text = [json.loads(ln)[eval_col] for ln in jsonl_lns]
+    word_edit_scores = [get_word_edit(ref, pred) for ref, pred in zip(all_ref_text, all_eval_text)]
     with nlp.select_pipes(enable=["parser", "benepar"]):
         refs = list(tqdm(nlp.pipe(all_ref_text, batch_size=256), total=len(all_ref_text), desc="syntdiv:parse_refs", disable=False))
         refs = list(map(get_tree_string, refs))
@@ -238,9 +244,11 @@ def diversity_measure(args):
         preds = list(tqdm(nlp.pipe(all_eval_text, batch_size=256), total=len(all_eval_text), desc="syntdiv:parse_preds", disable=False))
         preds = list(map(get_tree_string, preds))
     scores = list(tqdm(map(dist, zip(preds, refs)), total=len(preds), desc="syntdiv:calc_dist"))
+    
     with open(out_file, "w", encoding="utf-8") as f_out:
         for idx in range(len(jsonl_lns)):
             content = json.loads(jsonl_lns[idx])
+            content["word_edit"] = word_edit_scores[idx]
             content[metric_name] = scores[idx]
             json.dump(
                 content,
@@ -249,7 +257,6 @@ def diversity_measure(args):
             )
             f_out.write("\n")
 
-    # torch.distributed.barrier()
     return out_filename
 
 
@@ -276,7 +283,14 @@ def backtrans_filter(args):
         div_score = nltk.edit_distance(sent1, sent2) / max(len(sent1), len(sent2))
         return div_score
 
-    def not_valid(sent1, sent2):
+    def not_valid(sent1, sent2, sent1_text, sent2_text):
+        if len(sent1_text) - len(" ".join(sent1)) > 15 or\
+                len(sent2_text) - len(" ".join(sent2)) > 15:
+            return True
+
+        if "\\u" in f"{sent1_text} {sent2_text}":
+            return True
+
         max_len, min_len = max(len(sent1), len(sent2)), min(len(sent1), len(sent2))
         if max_len > 75 or min_len < 5:
             return True
@@ -303,17 +317,19 @@ def backtrans_filter(args):
             sent1_text, sent2_text = json.loads(ln_text).get("src_en"), json.loads(ln_text).get("pred_en")
             progress_bar.update(1)
             if not sent1_text or not sent2_text:
+                # or (len(sent1_text) > 420) or (len(sent2_text) > 420)
                 fOut_trash.write(ln_text)
                 fOut_trash.write("\n")
-                continue                
+                continue
 
             sent1 = re.sub('[^A-Za-z0-9]+', ' ', sent1_text)
             sent2 = re.sub('[^A-Za-z0-9]+', ' ', sent2_text)
+
             sent1 = sent1.strip().lower().split(" ")
             sent2 = sent2.strip().lower().split(" ")
             # measure div and other heuristic rules (labeled as tag)
             #   tag: high-edit; low-edit; clean (length short/long or misalighn, `< unk >` issue 
-            if not_valid(sent1, sent2):
+            if not_valid(sent1, sent2, sent1_text, sent2_text):
                 fOut_trash.write(ln_text)
                 fOut_trash.write("\n")
                 continue

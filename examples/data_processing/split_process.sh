@@ -1,23 +1,26 @@
+DATA_DIR=/apdcephfs/share_916081/timxthuang/bt_files/mono_en
+PARA_DATA_DIR=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data
 
-export ln_count=2115834
+export ln_count=27040000
 
-export data_dir=/data1/paraphrase_pair_data/xsum
+export data_dir=/data1/paraphrase_pair_data/newsroom/transmart_en2zh2en
 export file_extension=".jsonl"
-export task_name=xsum
-export part_tail="_train_transmart"
+export task_name=newsroom
+export part_tail="_train"
 
 export corpus_file=$task_name"_sents"$part_tail$file_extension
 export prefix=$task_name"_sents"$part_tail
 
 export src_file=$data_dir/$corpus_file
 export out_file=$data_dir/$prefix-part
-export nsplit=75
+export nsplit=80
 
 # export ln_count=$(wc -l < $src_file)
 
 split -da 2  -l$(($ln_count/$nsplit)) $src_file $out_file --additional-suffix=$file_extension
 
 export all_splits=""
+
 # for i in $(seq 0 $(($nsplit-1)));
 # do
 #   export all_splits=$all_splits";"$prefix-part0$i$file_extension
@@ -61,7 +64,7 @@ python backtrans_process.py\
   --sub_files $all_splits\
   --nsplit $nsplit\
   --func_name $func_name\
-  --post_action merge_to_multiple
+  --post_action "merge_to_multiple"
   # --out_filename $task_name"_sents.jsonl"\
 # =========
 
