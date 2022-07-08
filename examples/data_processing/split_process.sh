@@ -1,19 +1,20 @@
 DATA_DIR=/apdcephfs/share_916081/timxthuang/bt_files/mono_en
 PARA_DATA_DIR=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data
 
-export ln_count=27040000
+export ln_count=2189000
 
-export data_dir=/data1/paraphrase_pair_data/newsroom/transmart_en2zh2en
+export data_dir=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data/msmarco/div_measure
 export file_extension=".jsonl"
-export task_name=newsroom
-export part_tail="_train"
+export task_name=msmarco
+export part_tail="_train_high03"
+
 
 export corpus_file=$task_name"_sents"$part_tail$file_extension
 export prefix=$task_name"_sents"$part_tail
 
 export src_file=$data_dir/$corpus_file
 export out_file=$data_dir/$prefix-part
-export nsplit=80
+export nsplit=60
 
 # export ln_count=$(wc -l < $src_file)
 

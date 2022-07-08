@@ -221,6 +221,8 @@ def diversity_measure(args):
     def get_word_edit(sent1, sent2):
         sent1 = re.sub('[^A-Za-z0-9]+', ' ', sent1)
         sent2 = re.sub('[^A-Za-z0-9]+', ' ', sent2)
+        sent1 = sent1.lower().split()
+        sent2 = sent2.lower().split()
         return nltk.edit_distance(sent1, sent2) / max(len(sent1), len(sent2))
 
     with open(src_file, encoding="utf-8") as f_in:
@@ -249,6 +251,8 @@ def diversity_measure(args):
         for idx in range(len(jsonl_lns)):
             content = json.loads(jsonl_lns[idx])
             content["word_edit"] = word_edit_scores[idx]
+            # ref, pred = content[ref_col], content[eval_col]
+            # content["word_edit"] = get_word_edit(ref, pred)
             content[metric_name] = scores[idx]
             json.dump(
                 content,
@@ -284,6 +288,9 @@ def backtrans_filter(args):
         return div_score
 
     def not_valid(sent1, sent2, sent1_text, sent2_text):
+        if len(sent1_text) > 500 or len(sent1_text) > 500:
+            return True
+
         if len(sent1_text) - len(" ".join(sent1)) > 15 or\
                 len(sent2_text) - len(" ".join(sent2)) > 15:
             return True
