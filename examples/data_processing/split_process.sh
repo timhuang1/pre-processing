@@ -13,7 +13,7 @@ export prefix=$task_name"_sents"$part_tail
 
 export src_file=$data_dir/$corpus_file
 export out_file=$data_dir/$prefix-part
-export nsplit=80
+export nsplit=85
 
 # export ln_count=$(wc -l < $src_file)
 

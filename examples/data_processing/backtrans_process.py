@@ -240,10 +240,10 @@ def diversity_measure(args):
     all_eval_text = [json.loads(ln)[eval_col] for ln in jsonl_lns]
     word_edit_scores = [get_word_edit(ref, pred) for ref, pred in zip(all_ref_text, all_eval_text)]
     with nlp.select_pipes(enable=["parser", "benepar"]):
-        refs = list(tqdm(nlp.pipe(all_ref_text, batch_size=256), total=len(all_ref_text), desc="syntdiv:parse_refs", disable=False))
+        refs = list(tqdm(nlp.pipe(all_ref_text, batch_size=256), total=len(all_ref_text), desc="syntdiv:parse_refs", disable=(args.local_rank != 0)))
         refs = list(map(get_tree_string, refs))
 
-        preds = list(tqdm(nlp.pipe(all_eval_text, batch_size=256), total=len(all_eval_text), desc="syntdiv:parse_preds", disable=False))
+        preds = list(tqdm(nlp.pipe(all_eval_text, batch_size=256), total=len(all_eval_text), desc="syntdiv:parse_preds", disable=(args.local_rank != 0)))
         preds = list(map(get_tree_string, preds))
     scores = list(tqdm(map(dist, zip(preds, refs)), total=len(preds), desc="syntdiv:calc_dist"))
     
@@ -289,6 +289,9 @@ def backtrans_filter(args):
 
     def not_valid(sent1, sent2, sent1_text, sent2_text):
         if len(sent1_text) > 500 or len(sent1_text) > 500:
+            return True
+
+        if max([len(w) for w in sent1]) > 25 or max([len(w) for w in sent2]) > 25:
             return True
 
         if len(sent1_text) - len(" ".join(sent1)) > 15 or\
