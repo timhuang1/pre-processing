@@ -21,7 +21,7 @@ from multiprocessing import Pool
 from apted import APTED
 from apted.helpers import Tree
 
-CACHE_DIR = "/apdcephfs/share_916081/timxthuang/huggingface_models"
+CACHE_DIR = "/root/huggingface_models/roberta-large"
 
 
 def mono_sent_split_file(pass_arg):
@@ -279,8 +279,8 @@ def backtrans_filter(args):
     spacy_pipe = spacy.load("en_core_web_sm")
     spacy_pipe.add_pipe("language_detector")
     from transformers import AutoTokenizer
-    # tokenizer = AutoTokenizer.from_pretrained(f"{CACHE_DIR}/roberta-large")
-    tokenizer = AutoTokenizer.from_pretrained("roberta-large")
+    tokenizer = AutoTokenizer.from_pretrained(f"{CACHE_DIR}/roberta-large")
+    # tokenizer = AutoTokenizer.from_pretrained("roberta-large")
 
     def get_div(sent1, sent2):
         div_score = nltk.edit_distance(sent1, sent2) / max(len(sent1), len(sent2))

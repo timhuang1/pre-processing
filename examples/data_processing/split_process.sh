@@ -1,12 +1,12 @@
 DATA_DIR=/apdcephfs/share_916081/timxthuang/bt_files/mono_en
 PARA_DATA_DIR=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data
 
-export ln_count=2187868
+# export ln_count=2187868
 
-export data_dir=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data/msmarco/div_measure
+export data_dir=/data1/paraphrase_pair_data/cnn_dm/div_measure
 export file_extension=".jsonl"
-export task_name=msmarco
-export part_tail="_train_high00"
+export task_name=cnn_dm
+export part_tail="_train"
 
 export corpus_file=$task_name"_sents"$part_tail$file_extension
 export prefix=$task_name"_sents"$part_tail
@@ -15,7 +15,8 @@ export src_file=$data_dir/$corpus_file
 export out_file=$data_dir/$prefix-part
 export nsplit=85
 
-# export ln_count=$(wc -l < $src_file)
+ln_count=$(wc -l < $src_file)
+ln_count=$(($ln_count + 2000))
 
 split -da 2  -l$(($ln_count/$nsplit)) $src_file $out_file --additional-suffix=$file_extension
 
@@ -44,7 +45,7 @@ echo $all_splits
 # # =========
 # func_name=diversity_measure
 # text_cols="src_en::pred_en"
-# out_filename=$prefix"_measure"$file_extension
+# out_filename=$prefix"_add_parse"$file_extension
 # python backtrans_process.py\
 #   --data_dir $data_dir\
 #   --sub_files $all_splits\
@@ -66,6 +67,10 @@ python backtrans_process.py\
   --func_name $func_name\
   --post_action "merge_to_multiple"
   # --out_filename $task_name"_sents.jsonl"\
+
+mv $data_dir/"post_cat_file0.jsonl" $data_dir/$prefix"_high"$file_extension
+mv $data_dir/"post_cat_file1.jsonl" $data_dir/$prefix"_low"$file_extension
+mv $data_dir/"post_cat_file2.jsonl" $data_dir/$prefix"_trah"$file_extension
 # =========
 
 # # =========
