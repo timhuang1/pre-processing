@@ -12,7 +12,7 @@ import benepar
 import socket
 import re
 import torch
-import torch.distributed as dist
+import torch.distributed as torch_dist
 from collections import defaultdict, Counter
 from tqdm.auto import tqdm
 from ftfy import fix_text
@@ -21,13 +21,7 @@ from multiprocessing import Pool
 from apted import APTED
 from apted.helpers import Tree
 
-# DATA_DIR = "/apdcephfs/share_916081/timxthuang/bt_files/mono_en/msmarco"
-# ceph_data_dir = "/apdcephfs/share_916081/timxthuang/bt_files/mono_en/msmarco"
-# spacy_model_dir = "/apdcephfs/share_916081/timxthuang/cache/"
-
-
-# data_dir = "/apdcephfs/share_916081/timxthuang/bt_files/mono_en/msmarco"
-# out_dir = "/apdcephfs/share_916081/timxthuang/bt_files/mono_en/msmarco_test"
+CACHE_DIR = "/apdcephfs/share_916081/timxthuang/huggingface_models"
 
 
 def mono_sent_split_file(pass_arg):
@@ -151,8 +145,8 @@ def mono_sent_split_text_file(args):
 
 
 def diversity_measure(args):
-    import torch.distributed as dist
-    dist.init_process_group(
+    # import torch.distributed as torch_dist
+    torch_dist.init_process_group(
         "nccl",
         init_method=args.url,
         rank=args.local_rank,
@@ -240,20 +234,22 @@ def diversity_measure(args):
     all_eval_text = [json.loads(ln)[eval_col] for ln in jsonl_lns]
     word_edit_scores = [get_word_edit(ref, pred) for ref, pred in zip(all_ref_text, all_eval_text)]
     with nlp.select_pipes(enable=["parser", "benepar"]):
+        preds = list(tqdm(nlp.pipe(all_eval_text, batch_size=256), total=len(all_eval_text), desc="syntdiv:parse_preds", disable=(args.local_rank != 0)))
+        preds = list(map(get_tree_string, preds))
+
         refs = list(tqdm(nlp.pipe(all_ref_text, batch_size=256), total=len(all_ref_text), desc="syntdiv:parse_refs", disable=(args.local_rank != 0)))
         refs = list(map(get_tree_string, refs))
 
-        preds = list(tqdm(nlp.pipe(all_eval_text, batch_size=256), total=len(all_eval_text), desc="syntdiv:parse_preds", disable=(args.local_rank != 0)))
-        preds = list(map(get_tree_string, preds))
-    scores = list(tqdm(map(dist, zip(preds, refs)), total=len(preds), desc="syntdiv:calc_dist"))
+    # scores = list(tqdm(map(dist, zip(preds, refs)), total=len(preds), desc="syntdiv:calc_dist"))
     
     with open(out_file, "w", encoding="utf-8") as f_out:
         for idx in range(len(jsonl_lns)):
             content = json.loads(jsonl_lns[idx])
             content["word_edit"] = word_edit_scores[idx]
-            # ref, pred = content[ref_col], content[eval_col]
-            # content["word_edit"] = get_word_edit(ref, pred)
-            content[metric_name] = scores[idx]
+            
+            # content[metric_name] = scores[idx]
+            content["ref_tree"] = refs[idx]
+            content["pred_tree"] = preds[idx]
             json.dump(
                 content,
                 f_out,
@@ -282,6 +278,9 @@ def backtrans_filter(args):
     progress_bar = tqdm(range(ln_count), disable=not args.major_process)
     spacy_pipe = spacy.load("en_core_web_sm")
     spacy_pipe.add_pipe("language_detector")
+    from transformers import AutoTokenizer
+    # tokenizer = AutoTokenizer.from_pretrained(f"{CACHE_DIR}/roberta-large")
+    tokenizer = AutoTokenizer.from_pretrained("roberta-large")
 
     def get_div(sent1, sent2):
         div_score = nltk.edit_distance(sent1, sent2) / max(len(sent1), len(sent2))
@@ -301,6 +300,10 @@ def backtrans_filter(args):
         if "\\u" in f"{sent1_text} {sent2_text}":
             return True
 
+        if len(tokenizer(sent1_text)["input_ids"]) > 400 or\
+                len(tokenizer(sent1_text)["input_ids"]) > 400:
+            return True
+
         max_len, min_len = max(len(sent1), len(sent2)), min(len(sent1), len(sent2))
         if max_len > 75 or min_len < 5:
             return True
@@ -315,7 +318,7 @@ def backtrans_filter(args):
         if res_1._.language != "en" or res_2._.language != "en":
             return True
         return False
-    
+
     with open(high_outfile, "w", encoding="utf-8") as fOut_high,\
             open(low_outfile, "w", encoding="utf-8") as fOut_low,\
             open(trash_outfile, "w", encoding="utf-8") as fOut_trash:
@@ -337,12 +340,13 @@ def backtrans_filter(args):
 
             sent1 = sent1.strip().lower().split(" ")
             sent2 = sent2.strip().lower().split(" ")
-            # measure div and other heuristic rules (labeled as tag)
-            #   tag: high-edit; low-edit; clean (length short/long or misalighn, `< unk >` issue 
             if not_valid(sent1, sent2, sent1_text, sent2_text):
                 fOut_trash.write(ln_text)
                 fOut_trash.write("\n")
                 continue
+
+            # measure div and other heuristic rules (labeled as tag)
+            #   tag: high-edit; low-edit; clean (length short/long or misalighn, `< unk >` issue 
             div_score = get_div(sent1, sent2)
             if div_score > 0.25:
                 fOut_high.write(ln_text)

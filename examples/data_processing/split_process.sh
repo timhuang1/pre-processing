@@ -1,12 +1,12 @@
 DATA_DIR=/apdcephfs/share_916081/timxthuang/bt_files/mono_en
 PARA_DATA_DIR=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data
 
-export ln_count=2423170
+export ln_count=2187868
 
-export data_dir=/data1/paraphrase_pair_data/cc_news/div_measure
+export data_dir=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data/msmarco/div_measure
 export file_extension=".jsonl"
-export task_name=cc_news
-export part_tail="_train_00"
+export task_name=msmarco
+export part_tail="_train_high00"
 
 export corpus_file=$task_name"_sents"$part_tail$file_extension
 export prefix=$task_name"_sents"$part_tail
@@ -66,9 +66,6 @@ python backtrans_process.py\
   --func_name $func_name\
   --post_action "merge_to_multiple"
   # --out_filename $task_name"_sents.jsonl"\
-mv $data_dir/"post_cat_file0.jsonl" $data_dir/$prefix"_high"$file_extension
-mv $data_dir/"post_cat_file1.jsonl" $data_dir/$prefix"_low"$file_extension
-mv $data_dir/"post_cat_file2.jsonl" $data_dir/$prefix"_trah"$file_extension
 # =========
 
 # # =========
