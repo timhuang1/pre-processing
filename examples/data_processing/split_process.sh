@@ -1,12 +1,14 @@
 DATA_DIR=/apdcephfs/share_916081/timxthuang/bt_files/mono_en
 PARA_DATA_DIR=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data
 
-# export ln_count=2187868
+# export ln_count=2188068
 
 export data_dir=/data1/paraphrase_pair_data/cnn_dm/div_measure
 export file_extension=".jsonl"
 export task_name=cnn_dm
-export part_tail="_train"
+export part_tail="_train_add_parse"
+# cc_news_sents_train00
+# cnn_dm_sents_train_add_parse
 
 export corpus_file=$task_name"_sents"$part_tail$file_extension
 export prefix=$task_name"_sents"$part_tail
@@ -41,7 +43,7 @@ echo $all_splits
 
 
 # # =========
-# # Measure tree-diversity of sentence-pairs
+# # Parse_only: Measure tree-diversity of sentence-pairs
 # # =========
 # func_name=diversity_measure
 # text_cols="src_en::pred_en"
@@ -57,21 +59,36 @@ echo $all_splits
 # # =========
 
 # =========
-# Filter Back-translation results and re-save into multiple output files
+# Compute edits: Measure tree-diversity of sentence-pairs
 # =========
-export func_name=backtrans_filter
+func_name=compute_tree_edit
+text_cols="ref_tree::pred_tree"
+out_filename=$prefix"_measure"$file_extension
 python backtrans_process.py\
   --data_dir $data_dir\
   --sub_files $all_splits\
   --nsplit $nsplit\
-  --func_name $func_name\
-  --post_action "merge_to_multiple"
-  # --out_filename $task_name"_sents.jsonl"\
-
-mv $data_dir/"post_cat_file0.jsonl" $data_dir/$prefix"_high"$file_extension
-mv $data_dir/"post_cat_file1.jsonl" $data_dir/$prefix"_low"$file_extension
-mv $data_dir/"post_cat_file2.jsonl" $data_dir/$prefix"_trah"$file_extension
+  --text_cols $text_cols\
+  --out_filename $out_filename\
+  --func_name $func_name
 # =========
+
+# # =========
+# # Filter Back-translation results and re-save into multiple output files
+# # =========
+# export func_name=backtrans_filter
+# python backtrans_process.py\
+#   --data_dir $data_dir\
+#   --sub_files $all_splits\
+#   --nsplit $nsplit\
+#   --func_name $func_name\
+#   --post_action "merge_to_multiple"
+#   # --out_filename $task_name"_sents.jsonl"\
+
+# mv $data_dir/"post_cat_file0.jsonl" $data_dir/$prefix"_high"$file_extension
+# mv $data_dir/"post_cat_file1.jsonl" $data_dir/$prefix"_low"$file_extension
+# mv $data_dir/"post_cat_file2.jsonl" $data_dir/$prefix"_trah"$file_extension
+# # =========
 
 # # =========
 # # Extract well-formed sents from raw text file

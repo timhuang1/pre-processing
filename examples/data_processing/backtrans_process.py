@@ -14,6 +14,7 @@ import re
 import torch
 import torch.distributed as torch_dist
 from collections import defaultdict, Counter
+from transformers import AutoTokenizer
 from tqdm.auto import tqdm
 from ftfy import fix_text
 from pathlib import Path
@@ -21,7 +22,8 @@ from multiprocessing import Pool
 from apted import APTED
 from apted.helpers import Tree
 
-CACHE_DIR = "/root/huggingface_models/roberta-large"
+# CACHE_DIR = "/root/huggingface_models/"
+# tokenizer = AutoTokenizer.from_pretrained("roberta-large")
 
 
 def mono_sent_split_file(pass_arg):
@@ -141,6 +143,81 @@ def mono_sent_split_text_file(args):
                     )
                     # f_out.write(fix_text(sent))
                     f_out.write("\n")    
+    return out_filename
+
+
+def compute_tree_edit(args):
+    filename = args.sub_filename
+    out_filename = f"{filename}.tmp"
+    src_file, out_file = os.path.join(args.data_dir, filename),\
+        os.path.join(args.data_dir, out_filename)
+    assert len(args.text_cols.split("::")) == 2, f"Invalid text_cols: {args.text_cols}"
+    ref_col, pred_col = args.text_cols.split("::")
+    metric_name = "tree_edit"
+
+    def normalize_tree(tree_string, max_depth=3):
+        res = []
+        depth = -1
+        leaf = False
+        for c in tree_string:
+            if c in ['{', '}']:
+                continue
+            if c == '(':
+                leaf = False
+                depth += 1
+
+            elif c == ')':
+                leaf = False
+                depth -= 1
+                if depth < max_depth:
+                    res.append('}')
+                    continue
+                    
+            elif c == ' ':
+                leaf = True
+                continue
+
+            if depth <= max_depth and not leaf and c != ')':
+                res.append(c if c != '(' else '{')
+            
+        return ''.join(res)    
+
+    def tree_edit_distance(lintree1, lintree2):
+        tree1 = Tree.from_text(lintree1)
+        tree2 = Tree.from_text(lintree2)
+        n_nodes_t1 = lintree1.count('{')
+        n_nodes_t2 = lintree2.count('{')
+        apted = APTED(tree1, tree2)
+        ted = apted.compute_edit_distance()
+        return ted / (n_nodes_t1 + n_nodes_t2)
+
+    def dist(pair):
+        p_tree_n = normalize_tree(pair[0], max_depth=3)
+        r_tree_n = normalize_tree(pair[1], max_depth=3)
+        ted = tree_edit_distance(p_tree_n, r_tree_n)
+        return ted
+
+    with open(src_file, encoding="utf-8") as f_in:
+        jsonl_lns = f_in.readlines()
+
+    with open(out_file, "w", encoding="utf-8") as f_out:
+        for idx in range(len(jsonl_lns)):
+            content = json.loads(jsonl_lns[idx])
+            # content["word_edit"] = word_edit_scores[idx]
+            
+            # # content[metric_name] = scores[idx]
+            # content["ref_tree"] = refs[idx]
+            # content["pred_tree"] = preds[idx]
+
+            ref_tree = content.pop(ref_col)
+            pred_tree = content.pop(pred_col)
+            content[metric_name] = dist((ref_tree, pred_tree))
+            json.dump(
+                content,
+                f_out,
+                ensure_ascii=False,
+            )
+            f_out.write("\n")
     return out_filename
 
 
@@ -279,8 +356,8 @@ def backtrans_filter(args):
     spacy_pipe = spacy.load("en_core_web_sm")
     spacy_pipe.add_pipe("language_detector")
     from transformers import AutoTokenizer
-    tokenizer = AutoTokenizer.from_pretrained(f"{CACHE_DIR}/roberta-large")
-    # tokenizer = AutoTokenizer.from_pretrained("roberta-large")
+    # tokenizer = AutoTokenizer.from_pretrained(f"{CACHE_DIR}/roberta-large")
+    tokenizer = AutoTokenizer.from_pretrained(f"roberta-large")
 
     def get_div(sent1, sent2):
         div_score = nltk.edit_distance(sent1, sent2) / max(len(sent1), len(sent2))
@@ -786,6 +863,7 @@ func_name_mapping = {
     "backtrans_filter": backtrans_filter,
     "entity_mask_align": entity_mask_align,
     "diversity_measure": diversity_measure,
+    "compute_tree_edit": compute_tree_edit,
 }
 
 post_action_mapping = {
