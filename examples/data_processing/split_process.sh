@@ -3,12 +3,11 @@ PARA_DATA_DIR=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data
 
 # export ln_count=2188068
 
-export data_dir=/data1/paraphrase_pair_data/cnn_dm/div_measure
+export data_dir=/data1/paraphrase_pair_data/cc_news/div_measure
 export file_extension=".jsonl"
-export task_name=cnn_dm
-export part_tail="_train_add_parse"
-# cc_news_sents_train00
-# cnn_dm_sents_train_add_parse
+export task_name=cc_news
+export part_tail="_train_rest_add_parse"
+# cc_news_sents_train_rest_add_parse.jsonl
 
 export corpus_file=$task_name"_sents"$part_tail$file_extension
 export prefix=$task_name"_sents"$part_tail
