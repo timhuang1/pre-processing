@@ -200,8 +200,10 @@ def compute_tree_edit(args):
     with open(src_file, encoding="utf-8") as f_in:
         jsonl_lns = f_in.readlines()
 
+    progress_bar = tqdm(range(len(jsonl_lns)), disable=not args.major_process)
     with open(out_file, "w", encoding="utf-8") as f_out:
         for idx in range(len(jsonl_lns)):
+            progress_bar.update(1)
             content = json.loads(jsonl_lns[idx])
             # content["word_edit"] = word_edit_scores[idx]
             
