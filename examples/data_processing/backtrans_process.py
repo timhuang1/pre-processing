@@ -197,6 +197,22 @@ def compute_tree_edit(args):
         ted = tree_edit_distance(p_tree_n, r_tree_n)
         return ted
 
+    def get_div(sent1, sent2, mode="bow_edit"):
+        sent1, sent2 =\
+            re.sub('[^A-Za-z0-9]+', ' ', sent1),\
+            re.sub('[^A-Za-z0-9]+', ' ', sent2)
+        sent1 = sent1.strip().lower().split(" ")
+        sent2 = sent2.strip().lower().split(" ")
+        if mode == "bow_edit":
+            sent1 = [w.lower() if w.lower() not in STOP_WORDS else "" for w in sent1]
+            sent2 = [w.lower() if w.lower() not in STOP_WORDS else "" for w in sent2]
+            sent1 = list(filter(len, sent1))
+            sent2 = list(filter(len, sent2))
+            sent1 = " ".join(sorted(sent1))
+            sent2 = " ".join(sorted(sent2))
+            div_score = nltk.edit_distance(sent1, sent2) / max(len(sent1), len(sent2))
+            return div_score
+
     with open(src_file, encoding="utf-8") as f_in:
         jsonl_lns = f_in.readlines()
 
@@ -206,20 +222,70 @@ def compute_tree_edit(args):
             progress_bar.update(1)
             content = json.loads(jsonl_lns[idx])
             # content["word_edit"] = word_edit_scores[idx]
-            
+            ref_text, pred_text = content["src_en"], content["pred_en"]
             # # content[metric_name] = scores[idx]
             # content["ref_tree"] = refs[idx]
             # content["pred_tree"] = preds[idx]
-
+            bow_edit = get_div(ref_text, pred_text)
             ref_tree = content.pop(ref_col)
             pred_tree = content.pop(pred_col)
             content[metric_name] = dist((ref_tree, pred_tree))
+            content["bow_edit"] = bow_edit
             json.dump(
                 content,
                 f_out,
                 ensure_ascii=False,
             )
             f_out.write("\n")
+    return out_filename
+
+
+def pred_res_select(args):
+    filename = args.sub_filename
+    out_filename = f"{filename}.tmp"
+    src_file, out_file = os.path.join(args.data_dir, filename),\
+        os.path.join(args.data_dir, out_filename)
+    div_mode = "bow_edit"
+
+    def get_div(sent1, sent2, mode="bow_edit"):
+        sent1, sent2 =\
+            re.sub('[^A-Za-z0-9]+', ' ', sent1),\
+            re.sub('[^A-Za-z0-9]+', ' ', sent2)
+        sent1 = sent1.strip().lower().split(" ")
+        sent2 = sent2.strip().lower().split(" ")
+        if mode == "word_edit":
+            div_score = nltk.edit_distance(sent1, sent2) / max(len(sent1), len(sent2))
+            return div_score
+        elif mode == "bow_edit":
+            sent1 = [w.lower() if w.lower() not in STOP_WORDS else "" for w in sent1]
+            sent2 = [w.lower() if w.lower() not in STOP_WORDS else "" for w in sent2]
+            sent1 = list(filter(len, sent1))
+            sent2 = list(filter(len, sent2))
+            sent1 = " ".join(sorted(sent1))
+            sent2 = " ".join(sorted(sent2))
+            div_score = nltk.edit_distance(sent1, sent2) / max(len(sent1), len(sent2))
+            return div_score
+        else:
+            raise NotImplementedError(f"{mode} is not a valid div mode, options are ['word_edit', 'bow_edit']")
+
+    with open(src_file, encoding="utf-8") as f_in:
+        jsonl_lns = f_in.readlines()
+    progress_bar = tqdm(range(len(jsonl_lns)), disable=not args.major_process)
+    with open(out_file, "w", encoding="utf-8") as f_out:
+        for idx in range(len(jsonl_lns)):
+            progress_bar.update(1)
+            content = json.loads(jsonl_lns[idx])
+            ref_text = content["src_en"]
+            if args.do_sort:
+                all_candidates = content[args.text_cols]
+                all_candidates.sort(key=lambda x: get_div(x, ref_text, mode=div_mode), reverse=True)
+                content["selected_pred_bow"] = all_candidates[0]
+            else:
+                eval_text = content[args.text_cols]
+                content["bow_edit"] = get_div(eval_text, ref_text, mode=div_mode)
+            json.dump(content, f_out, ensure_ascii=False)
+            f_out.write("\n")
+    
     return out_filename
 
 
@@ -353,20 +419,22 @@ def backtrans_filter(args):
         os.path.join(args.data_dir, low_edit_out),\
         os.path.join(args.data_dir, trash_out)
 
+    src_col, tgt_col = args.text_cols.split("::")
+
     ln_count = sum(1 for _ in Path(src_file).open(encoding="utf-8", errors='ignore').readlines())
     progress_bar = tqdm(range(ln_count), disable=not args.major_process)
     spacy_pipe = spacy.load("en_core_web_sm")
     spacy_pipe.add_pipe("language_detector")
     from transformers import AutoTokenizer
-    # tokenizer = AutoTokenizer.from_pretrained(f"{CACHE_DIR}/roberta-large")
-    tokenizer = AutoTokenizer.from_pretrained(f"roberta-large")
+    tokenizer = AutoTokenizer.from_pretrained(f"{CACHE_DIR}/roberta-large")
+    # tokenizer = AutoTokenizer.from_pretrained(f"roberta-large")
 
     def get_div(sent1, sent2):
         div_score = nltk.edit_distance(sent1, sent2) / max(len(sent1), len(sent2))
         return div_score
 
     def not_valid(sent1, sent2, sent1_text, sent2_text):
-        if len(sent1_text) > 500 or len(sent1_text) > 500:
+        if len(sent1_text) > 500 or len(sent2_text) > 500:
             return True
 
         if max([len(w) for w in sent1]) > 25 or max([len(w) for w in sent2]) > 25:
@@ -384,7 +452,7 @@ def backtrans_filter(args):
             return True
 
         max_len, min_len = max(len(sent1), len(sent2)), min(len(sent1), len(sent2))
-        if max_len > 75 or min_len < 5:
+        if max_len > 125 or min_len < 5:
             return True
         if (max_len / min_len > 1.5 and min_len > 20) or\
                 (max_len / min_len > 1.9 and min_len <= 20):
@@ -406,7 +474,7 @@ def backtrans_filter(args):
             idx += 1
             ln_text = linecache.getline(str(src_file), idx).rstrip("\n")
             # get sents
-            sent1_text, sent2_text = json.loads(ln_text).get("src_en"), json.loads(ln_text).get("pred_en")
+            sent1_text, sent2_text = json.loads(ln_text).get(src_col), json.loads(ln_text).get(tgt_col)
             progress_bar.update(1)
             if not sent1_text or not sent2_text:
                 # or (len(sent1_text) > 420) or (len(sent2_text) > 420)
@@ -471,21 +539,27 @@ def fix_text_only(args):
             # linecache starts at 1
             idx += 1
             line = linecache.getline(str(in_file), idx).rstrip("\n")
-            content = json.loads(line)
-            ln_text = content.get("text")
+            if extension == "jsonl":
+                content = json.loads(line)
+                ln_text = content.get("text")
+            elif extension == "txt":
+                ln_text = line.strip()
             clean_text = fix_text(ln_text)
             doc = spacy_pipe(clean_text)
             valid_len = sum([token.pos_ != "PUNCT" and token.pos_ != "NUM" for token in doc])
             if valid_len < 10:
                 continue
-            content["text"] = clean_text
             if "\\u" in ln_text:
                 print(f"{ln_text} is still dirty")
                 continue
-            json.dump(
-                content,
-                f_out
-            )
+            if extension == "jsonl":
+                content["text"] = clean_text
+                json.dump(
+                    content,
+                    f_out
+                )
+            elif extension == "txt":
+                f_out.write(clean_text)
             f_out.write("\n")
     return out_filename
 
@@ -846,6 +920,7 @@ def multi_task():
     parser.add_argument("--out_filename", type=str, default=None, help="")
     parser.add_argument("--text_cols", type=str, default=None, help="")
     parser.add_argument("--use_gpu", action="store_true", help="whether use torch.multiprocessing for multi-thread")
+    parser.add_argument("--do_sort", action="store_false", help="for pred_res selection or div measure only")
     # parser.add_argument("--filename1", type=str, default=None, help="Target processing file1")
     # parser.add_argument("--filename2", type=str, default=None, help="Target processing file2")
     args = parser.parse_args()
@@ -866,6 +941,7 @@ func_name_mapping = {
     "entity_mask_align": entity_mask_align,
     "diversity_measure": diversity_measure,
     "compute_tree_edit": compute_tree_edit,
+    "pred_res_select": pred_res_select,
 }
 
 post_action_mapping = {
