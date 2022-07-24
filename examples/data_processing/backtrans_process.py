@@ -25,6 +25,7 @@ from apted.helpers import Tree
 # CACHE_DIR = "/root/huggingface_models/"
 # tokenizer = AutoTokenizer.from_pretrained("roberta-large")
 
+STOP_WORDS = {'a', 'of', 'along', 'an', 'and', 'at', 'are', 'as', 'at', 'were', 'was', 'the', 'to', 'or', 'on', 'off', 'it', 'that', 'had'}
 
 def mono_sent_split_file(pass_arg):
     filename, args = pass_arg
