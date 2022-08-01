@@ -3,12 +3,12 @@ PARA_DATA_DIR=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data
 
 # export ln_count=2188068
 
-export data_dir=/data1/paraphrase_pair_data/low_div_merge
+export data_dir=/data1/paraphrase_pair_data/parallel
 export file_extension=".jsonl"
 # export task_name=cc_news
 # export part_tail="_train_rest_add_parse"
 # export prefix=$task_name"_sents"$part_tail
-prefix="newsroom_sents_train_measure-low_div"
+prefix="parallel_enzh_sents_shuf00"
 corpus_file=$prefix$file_extension
 
 # newsroom_sents_train_measure-low_div.jsonl
@@ -91,41 +91,41 @@ echo $all_splits
 # # =========
 
 
-# =========
-# measure bow-div only
-# =========
-func_name="pred_res_select"
-text_cols="pred_en"
-out_filename=$prefix"_bow-div"$file_extension
-python backtrans_process.py\
-  --data_dir $data_dir\
-  --sub_files $all_splits\
-  --nsplit $nsplit\
-  --text_cols $text_cols\
-  --out_filename $out_filename\
-  --func_name $func_name\
-  --do_sort
-# =========
-
-
 # # =========
-# # Filter Back-translation results and re-save into multiple output files
+# # measure bow-div only
 # # =========
-# export func_name=backtrans_filter
-# text_cols="src_en::pred_en"
+# func_name="pred_res_select"
+# text_cols="pred_en"
+# out_filename=$prefix"_bow-div"$file_extension
 # python backtrans_process.py\
 #   --data_dir $data_dir\
 #   --sub_files $all_splits\
 #   --nsplit $nsplit\
-#   --func_name $func_name\
 #   --text_cols $text_cols\
-#   --post_action "merge_to_multiple"
-#   # --out_filename $task_name"_sents.jsonl"\
+#   --out_filename $out_filename\
+#   --func_name $func_name\
+#   --do_sort
+# # =========
 
-# mv $data_dir/"post_cat_file0.jsonl" $data_dir/$prefix"_high"$file_extension
-# mv $data_dir/"post_cat_file1.jsonl" $data_dir/$prefix"_low"$file_extension
-# mv $data_dir/"post_cat_file2.jsonl" $data_dir/$prefix"_trash"$file_extension
-# # # =========
+
+# =========
+# Filter Back-translation results and re-save into multiple output files
+# =========
+export func_name=backtrans_filter
+text_cols="src_en::pred_en"
+python backtrans_process.py\
+  --data_dir $data_dir\
+  --sub_files $all_splits\
+  --nsplit $nsplit\
+  --func_name $func_name\
+  --text_cols $text_cols\
+  --post_action "merge_to_multiple"
+  # --out_filename $task_name"_sents.jsonl"\
+
+mv $data_dir/"post_cat_file0.jsonl" $data_dir/$prefix"_high"$file_extension
+mv $data_dir/"post_cat_file1.jsonl" $data_dir/$prefix"_low"$file_extension
+mv $data_dir/"post_cat_file2.jsonl" $data_dir/$prefix"_trash"$file_extension
+# # =========
 
 # # =========
 # # Extract well-formed sents from raw text file
