@@ -22,7 +22,7 @@ from multiprocessing import Pool
 from apted import APTED
 from apted.helpers import Tree
 
-CACHE_DIR = "/root/huggingface_models/"
+CACHE_DIR = "/root/huggingface_models"
 # tokenizer = AutoTokenizer.from_pretrained("roberta-large")
 
 STOP_WORDS = {'a', 'of', 'along', 'an', 'and', 'at', 'are', 'as', 'at', 'were', 'was', 'the', 'to', 'or', 'on', 'off', 'it', 'that', 'had'}
@@ -278,13 +278,13 @@ def pred_res_select(args):
             progress_bar.update(1)
             content = json.loads(jsonl_lns[idx])
             ref_text = content["src_en"]
-            if args.do_sort:
+            if args.no_sort:
+                eval_text = content[args.text_cols]
+                content["bow_edit"] = get_div(eval_text, ref_text, mode=div_mode)
+            else:
                 all_candidates = content[args.text_cols]
                 all_candidates.sort(key=lambda x: get_div(x, ref_text, mode=div_mode), reverse=True)
                 content["selected_pred_bow"] = all_candidates[0]
-            else:
-                eval_text = content[args.text_cols]
-                content["bow_edit"] = get_div(eval_text, ref_text, mode=div_mode)
             json.dump(content, f_out, ensure_ascii=False)
             f_out.write("\n")
     
@@ -497,7 +497,7 @@ def backtrans_filter(args):
             # measure div and other heuristic rules (labeled as tag)
             #   tag: high-edit; low-edit; clean (length short/long or misalighn, `< unk >` issue 
             div_score = get_div(sent1, sent2)
-            if div_score > 0.25:
+            if div_score > 0.4:
                 fOut_high.write(ln_text)
                 fOut_high.write("\n")
             else:
@@ -922,7 +922,7 @@ def multi_task():
     parser.add_argument("--out_filename", type=str, default=None, help="")
     parser.add_argument("--text_cols", type=str, default=None, help="")
     parser.add_argument("--use_gpu", action="store_true", help="whether use torch.multiprocessing for multi-thread")
-    parser.add_argument("--do_sort", action="store_false", help="for pred_res selection or div measure only")
+    parser.add_argument("--no_sort", action="store_true", help="for pred_res selection or div measure only")
     # parser.add_argument("--filename1", type=str, default=None, help="Target processing file1")
     # parser.add_argument("--filename2", type=str, default=None, help="Target processing file2")
     args = parser.parse_args()
