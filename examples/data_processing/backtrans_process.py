@@ -281,6 +281,7 @@ def pred_res_select(args):
             if args.no_sort:
                 eval_text = content[args.text_cols]
                 content["bow_edit"] = get_div(eval_text, ref_text, mode=div_mode)
+                content["word_edit"] = get_div(eval_text, ref_text, mode="word_edit")
             else:
                 all_candidates = content[args.text_cols]
                 all_candidates.sort(key=lambda x: get_div(x, ref_text, mode=div_mode), reverse=True)
