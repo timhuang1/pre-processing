@@ -3,23 +3,22 @@ PARA_DATA_DIR=/apdcephfs/share_916081/timxthuang/paraphrase_pair_data
 
 # export ln_count=2188068
 
-export data_dir=/data1/paraphrase_pair_data/parallel
+export data_dir=/data1/paraphrase_pair_data/plan_guides
 export file_extension=".jsonl"
-# export task_name=cc_news
-# export part_tail="_train_rest_add_parse"
-# export prefix=$task_name"_sents"$part_tail
-prefix="parallel_enzh_sents_shuf07_high"
-corpus_file=$prefix$file_extension
 
-# newsroom_sents_train_measure-low_div.jsonl
-# msmarco_sents_measure-low_div.jsonl
+export prefix=cnn_dm_bt_high_trainv3_editable_1m
+
+# cnn_dm_bt_high_trainv3_editable.jsonl
+# cc_news_sents_train_measure-medium_div.jsonl
+
+export corpus_file=$prefix$file_extension
 
 export src_file=$data_dir/$corpus_file
 export out_file=$data_dir/$prefix-part
 export nsplit=85
 
 ln_count=$(wc -l < $src_file)
-ln_count=$(($ln_count + 1000))
+ln_count=$(($ln_count + 200))
 
 split -da 2  -l$(($ln_count/$nsplit)) $src_file $out_file --additional-suffix=$file_extension
 
@@ -62,6 +61,30 @@ echo $all_splits
 # # =========
 # # Compute edits: Measure tree-diversity of sentence-pairs
 # # =========
+# nsplit=50
+# # export src_file=$data_dir/$corpus_file
+# # export out_file=$data_dir/$prefix-part
+# prefix=$prefix"_add_parse"
+# corpus_file=$prefix$file_extension
+# src_file=$data_dir/$corpus_file
+# out_file=$data_dir/$prefix-part
+
+# split -da 2  -l$(($ln_count/$nsplit)) $src_file $out_file --additional-suffix=$file_extension
+
+# export all_splits=""
+
+# for i in $(seq 0 9);
+# do
+#   export all_splits=$all_splits";"$prefix-part0$i$file_extension
+# done
+
+# for i in $(seq 10 $(($nsplit-1)));
+# do
+#   export all_splits=$all_splits";"$prefix-part$i$file_extension
+# done
+
+# echo $all_splits
+
 # func_name=compute_tree_edit
 # text_cols="ref_tree::pred_tree"
 # out_filename=$prefix"_measure"$file_extension
@@ -90,22 +113,61 @@ echo $all_splits
 
 # # =========
 
+# # =========
+# # measure bow-div only
+# # =========
+# func_name="pred_res_select"
+# text_cols="pred_en"
+# out_filename=$prefix"_bow-div"$file_extension
 
-# =========
-# measure bow-div only
-# =========
-func_name="pred_res_select"
-text_cols="pred_en"
-out_filename=$prefix"_bow-div"$file_extension
-python backtrans_process.py\
-  --data_dir $data_dir\
+# python backtrans_process.py\
+#   --data_dir $data_dir\
+#   --sub_files $all_splits\
+#   --nsplit $nsplit\
+#   --text_cols $text_cols\
+#   --out_filename $out_filename\
+#   --func_name $func_name\
+#   --no_sort
+# # =========
+
+# # ==========
+# # Extract editable span from align results 
+# # ==========
+
+# out_filename=$prefix"_editable"$file_extension
+# # out_name=cc_news_sents_train_measure-high_div_editable.jsonl
+# text_cols=src_en::pred_en
+# func_name=extract_editable
+# python backtrans_process.py \
+#   --data_dir $data_dir \
+#   --sub_files $all_splits\
+#   --nsplit $nsplit\
+#   --out_filename $out_filename\
+#   --text_cols $text_cols \
+#   --func_name $func_name\
+#   # --keep_col  $keep_col\
+# # ==========
+
+
+# ==========
+# Filter editable span from align results 
+# ==========
+
+out_filename=$prefix"_clean_editable"$file_extension
+# out_name=cc_news_sents_train_measure-high_div_editable.jsonl
+text_cols=src_editable::tgt_editable::edit_mapping
+keep_col=src_en::pred_en
+func_name=filter_editable
+python backtrans_process.py \
+  --data_dir $data_dir \
   --sub_files $all_splits\
   --nsplit $nsplit\
-  --text_cols $text_cols\
   --out_filename $out_filename\
+  --text_cols $text_cols \
   --func_name $func_name\
-  --no_sort
-# =========
+  --keep_col  $keep_col\
+
+# ==========
 
 
 # # =========

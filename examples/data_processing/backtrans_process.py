@@ -242,6 +242,136 @@ def compute_tree_edit(args):
     return out_filename
 
 
+def filter_editable(args):
+    keep_col = args.keep_col.split("::") if args.keep_col else None
+    src_editable_col, tgt_editable_col, edit_mapping_col = args.text_cols.split("::")
+    filename = args.sub_filename
+    out_filename = f"{filename}.tmp"
+    src_file, out_file = os.path.join(args.data_dir, filename),\
+        os.path.join(args.data_dir, out_filename)
+    with open(src_file) as f_in1:
+        jsonl_lns = f_in1.readlines()
+    ln_count = len(jsonl_lns)
+
+    from nltk.stem.porter import PorterStemmer
+    stemmer = PorterStemmer()
+    nlp = spacy.load("en_core_web_sm")
+    STOP_WORDS = nlp.Defaults.stop_words
+
+    with open(out_file, "w", encoding="utf-8") as f_out:
+        progress_bar = tqdm(range(ln_count), disable=not args.major_process)
+        for idx in range(ln_count):
+            progress_bar.update(1)
+            json_content = json.loads(jsonl_lns[idx]) 
+            src_editable, tgt_editable, edit_mapping =\
+                json_content[src_editable_col],\
+                json_content[tgt_editable_col],\
+                json_content[edit_mapping_col]
+            valid_edit_mapping = list()
+            for map_pair in edit_mapping:
+                src_word, tgt_word = map_pair
+                # add stop-word filtering
+                if src_word.lower() in STOP_WORDS or tgt_word.lower() in STOP_WORDS:
+                    src_editable.remove(src_word) if src_word in src_editable else None
+                    tgt_editable.remove(tgt_word) if tgt_word in tgt_editable else None
+                    continue
+                src_stem, tgt_stem = stemmer.stem(src_word.lower()), stemmer.stem(tgt_word.lower())
+                if src_stem == tgt_stem:
+                    src_editable.remove(src_word) if src_word in src_editable else None
+                    tgt_editable.remove(tgt_word) if tgt_word in tgt_editable else None
+                    continue
+                valid_edit_mapping.append((src_word, tgt_word))
+            if keep_col is not None:
+                _save_dict = {key: json_content[key] for key in keep_col}
+            else:
+                _save_dict = json_content
+            _save_dict[src_editable_col] = copy.copy(src_editable)
+            _save_dict[tgt_editable_col] = copy.copy(tgt_editable)
+            _save_dict[edit_mapping_col] = copy.copy(valid_edit_mapping)
+            json.dump(
+                _save_dict,
+                f_out,
+                ensure_ascii=False,
+            )
+            f_out.write("\n")
+    return out_filename
+
+
+def extract_editable(args):
+    filename = args.sub_filename
+    out_filename = f"{filename}.tmp"
+    # keep_col = args.keep_col.split("::") if args.keep_col else None
+    src_col, tgt_col = args.text_cols.split("::")
+    src_file, out_file = os.path.join(args.data_dir, filename),\
+        os.path.join(args.data_dir, out_filename)
+
+    VALID_POS_TYPES = ['PRON', 'NOUN', 'ADJ', 'VERB', 'ADV']
+    nlp = spacy.load("en_core_web_sm")
+    
+    with open(src_file, encoding="utf-8") as f_in:
+        jsonl_lns = f_in.readlines()
+    ln_count = len(jsonl_lns)
+    progress_bar = tqdm(range(ln_count), disable=not args.major_process)
+    with open(out_file, "w", encoding="utf-8") as f_out:
+        for idx in range(ln_count):
+            progress_bar.update(1)
+            json_content = json.loads(jsonl_lns[idx])
+            src_editable, tgt_editable, edit_mapping = list(), list(), list()
+            # get src and tgt token pos type
+            src_text, tgt_text = json_content[src_col], json_content[tgt_col]
+            src_text, tgt_text = re.sub('[^A-Za-z0-9]+', ' ', src_text), re.sub('[^A-Za-z0-9]+', ' ', tgt_text)
+            src_res = [(token.text, token.pos_) for token in nlp(src_text)]
+            tgt_res = [(token.text, token.pos_) for token in nlp(tgt_text)]
+            
+            # iterate over idx diff and add token to src/tgt set respectively
+            src_idx_mapping = json_content["src_idx_mapping"]
+            src_idx_mapping = [(pair.split("-")[0], pair.split("-")[1]) for pair in src_idx_mapping.split()]
+            # all_src_edited, all_tgt_edited = list(), list()
+            for diff in json_content["idx_diff"]:
+                src_idx, tgt_idx = src_idx_mapping[int(diff)]
+                src_valid, tgt_valid = False, False
+                if src_idx != "None":
+                    _src_token_text, _src_token_pos = src_res[int(src_idx)]
+                    # all_src_edited.append(_src_token_text)
+                    if _src_token_pos in VALID_POS_TYPES:
+                        # src_editable.add(_src_token_text)
+                        src_editable.append((_src_token_text, int(src_idx)))
+                        src_valid = True
+                if tgt_idx != "None":
+                    _tgt_token_text, _tgt_token_pos = tgt_res[int(tgt_idx)]
+                    # all_tgt_edited.append(_tgt_token_text)
+                    if _tgt_token_pos in VALID_POS_TYPES:
+                        # tgt_editable.add(_tgt_token_text)
+                        tgt_editable.append((_tgt_token_text, int(tgt_idx)))
+                        tgt_valid = True
+                if src_valid and tgt_valid:
+                    edit_mapping.append((_src_token_text, _tgt_token_text))
+
+            src_editable.sort(key=lambda x: x[1])
+            tgt_editable.sort(key=lambda x: x[1])
+            src_editable = [pair[0] for pair in src_editable]
+            tgt_editable = [pair[0] for pair in tgt_editable]
+            src_editable = list(dict.fromkeys(src_editable))
+            tgt_editable = list(dict.fromkeys(tgt_editable))
+            src_editable = [word for word in src_editable if word not in tgt_text.split()]
+            tgt_editable = [word for word in tgt_editable if word not in src_text.split()]
+            # if keep_col is not None:
+            #     _save_dict = {key: json_content[key] for key in keep_col}
+            # else:
+            #     _save_dict = json_content
+            _save_dict = json_content
+            _save_dict["src_editable"] = src_editable
+            _save_dict["tgt_editable"] = tgt_editable
+            _save_dict["edit_mapping"] = edit_mapping
+            json.dump(
+                _save_dict,
+                f_out,
+                ensure_ascii=False,
+            )
+            f_out.write("\n")
+    return out_filename
+
+
 def pred_res_select(args):
     filename = args.sub_filename
     out_filename = f"{filename}.tmp"
@@ -279,13 +409,12 @@ def pred_res_select(args):
             content = json.loads(jsonl_lns[idx])
             ref_text = content["src_en"]
             if args.no_sort:
-                eval_text = content[args.text_cols]
-                content["bow_edit"] = get_div(eval_text, ref_text, mode=div_mode)
-                content["word_edit"] = get_div(eval_text, ref_text, mode="word_edit")
-            else:
                 all_candidates = content[args.text_cols]
                 all_candidates.sort(key=lambda x: get_div(x, ref_text, mode=div_mode), reverse=True)
                 content["selected_pred_bow"] = all_candidates[0]
+            else:
+                eval_text = content[args.text_cols]
+                content["bow_edit"] = get_div(eval_text, ref_text, mode=div_mode)
             json.dump(content, f_out, ensure_ascii=False)
             f_out.write("\n")
     
@@ -498,7 +627,7 @@ def backtrans_filter(args):
             # measure div and other heuristic rules (labeled as tag)
             #   tag: high-edit; low-edit; clean (length short/long or misalighn, `< unk >` issue 
             div_score = get_div(sent1, sent2)
-            if div_score > 0.4:
+            if div_score > 0.25:
                 fOut_high.write(ln_text)
                 fOut_high.write("\n")
             else:
@@ -923,9 +1052,8 @@ def multi_task():
     parser.add_argument("--out_filename", type=str, default=None, help="")
     parser.add_argument("--text_cols", type=str, default=None, help="")
     parser.add_argument("--use_gpu", action="store_true", help="whether use torch.multiprocessing for multi-thread")
-    parser.add_argument("--no_sort", action="store_true", help="for pred_res selection or div measure only")
-    # parser.add_argument("--filename1", type=str, default=None, help="Target processing file1")
-    # parser.add_argument("--filename2", type=str, default=None, help="Target processing file2")
+    parser.add_argument("--no_sort", action="store_false", help="for pred_res selection or div measure only")
+    parser.add_argument("--keep_col", type=str, default=None, help="")
     args = parser.parse_args()
     # # split_inspect()
     # main()
@@ -945,6 +1073,8 @@ func_name_mapping = {
     "diversity_measure": diversity_measure,
     "compute_tree_edit": compute_tree_edit,
     "pred_res_select": pred_res_select,
+    "extract_editable": extract_editable,
+    "filter_editable": filter_editable,
 }
 
 post_action_mapping = {
