@@ -281,6 +281,8 @@ def filter_editable(args):
                     tgt_editable.remove(tgt_word) if tgt_word in tgt_editable else None
                     continue
                 valid_edit_mapping.append((src_word, tgt_word))
+            src_editable = [w for w in src_editable if w not in STOP_WORDS]
+            tgt_editable = [w for w in tgt_editable if w not in STOP_WORDS]
             if keep_col is not None:
                 _save_dict = {key: json_content[key] for key in keep_col}
             else:
